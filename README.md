@@ -135,6 +135,11 @@ high-waisted jeans or a flowy skirt...") without crashing.
 When running `create_fit_card('', results[0])` the function returned the 
 descriptive error string without raising an exception.
 
+**Milestone 5 Output:**
+
+<img width="512" height="119" alt="image" src="https://github.com/user-attachments/assets/65d15b5e-6590-4b34-a375-fbd72d214a3d" />
+
+
 ## AI Usage:
 
 **Instance 1** — `search_listings` implementation: 
