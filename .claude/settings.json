@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest tests/test_tools.py -v)",
+      "Bash(python -m pytest tests/test_tools.py::test_create_fit_card_varies -v)",
+      "Bash(python -m pytest tests/test_tools.py::test_create_fit_card_varies -q)",
+      "Bash(grep -niA8 \"pars\\\\|step 2\\\\|description\\\\|size\\\\|max_price\")",
+      "Bash(python agent.py)"
+    ]
+  }
+}

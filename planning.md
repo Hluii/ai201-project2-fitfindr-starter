@@ -218,8 +218,15 @@ Planning Loop ──────────────────────
      before trusting it" is a plan. -->
 
 **Milestone 3 — Individual tool implementations:**
+For `search_listings`, I'll give Claude the Tool 1 spec block from planning.md (inputs: description, size, max_price; returns: list of matching listing dicts sorted by relevance, or [] if none match; failure: return [] and do not proceed) and ask it to implement the function in tools.py using load_listings(). Before running it, I'll check that the  generated code filters by all three params and returns [] instead of crashing when no listings match. Then I'll test it with 3 queries: a normal match ("vintage graphic tee", size="M", max_price=30), a price filter that excludes all results (max_price=1), and an unmatched description ("designer ballgown", size="XXS", max_price=5) to confirm the empty-list path.
+
+For `suggest_outfit`, I'll give Claude the Tool 2 spec block from planning.md (inputs: new_item dict, wardrobe dict; returns: non-empty string with outfit suggestion or general styling advice; failure: if wardrobe['items'] is empty, return general advice, not an error) and ask it to implement the function in tools.py using the Groq client. Before running it, I'll check that the generated code branches on wardrobe['items'] being empty and still returns a non-empty string in both branches. Then I'll test it with 2 queries: one with get_example_wardrobe() to confirm specific outfit combos, and one with get_empty_wardrobe() to confirm general styling advice is returned without crashing.
+
+For `create_fit_card`, I'll give Claude the Tool 3 spec block from planning.md (inputs: outfit string, new_item dict; returns: unique OOTD-style caption string per call; failure: if outfit == "", return a descriptive error string instead of crashing) and ask it to implement the function in tools.py using the Groq client. Before running it, I'll check that the generated code has a guard for empty outfit input and uses a temperature > 0 so captions vary across calls. Then I'll test it with 2 queries: one with a real outfit string to confirm a styled caption is returned, and one with outfit="" to confirm the error string path without a crash.
 
 **Milestone 4 — Planning loop and state management:**
+For the planning loop, I'll give Claude the Planning Loop section and State Management section from planning.md along with the Architecture diagram and ask it to implement run_agent() in agent.py. Before running it, I'll check that the generated code branches on search_listings returning [] (sets session["error"] and returns early without calling suggest_outfit or create_fit_card) and that each tool's return value is written into the correct session key before the next tool is called. 
+Then I'll test it with 2 queries: one normal query to confirm all 3 tools are called in sequence and session keys are populated, and one query with no matching listings to confirm the early return path sets session["error"] and leaves session["fit_card"] as None.
 
 ---
 
@@ -231,12 +238,21 @@ Write out what a full user interaction looks like from start to finish — tool 
 
 **Step 1:**
 <!-- What does the agent do first? Which tool is called? With what input? -->
+The agent parses the query and extracts description="vintage graphic tee", size=None, max_price=30.0. Stores in session["parsed"]. Calls search_listings("vintage graphic tee", size=None, max_price=30.0). 
+Returns a list of matching listing dicts under $30. Agent sets session["search_results"] = results and session["selected_item"] = results[0] (e.g. {"title": "Vintage Nirvana Tee", "price": 22, "style_tags": ["grunge", "oversized"], ...}).
 
 **Step 2:**
 <!-- What happens next? What was returned from step 1? What tool is called now? -->
+Agent calls suggest_outfit(new_item=session["selected_item"], wardrobe=session["wardrobe"]). wardrobe["items"] is non-empty, so the LLM is prompted with the selected item and the user's wardrobe pieces. Returns a string: "Pair the Nirvana tee with your baggy straight-leg jeans and white chunky sneakers for an effortless 90s-inspired look. Tuck in the front slightly and add a silver chain." Agent sets session["outfit_suggestion"] = result.
 
 **Step 3:**
 <!-- Continue until the full interaction is complete -->
+Agent calls create_fit_card(outfit=session["outfit_suggestion"], new_item=session["selected_item"]). outfit_suggestion is non-empty so the LLM generates a unique OOTD-style caption. Returns: "thrifted & 
+thriving, vintage nirvana tee + baggy jeans + chunky sneakers = the only fit you need this weekend. #thriftfit #90svibes #OOTD". Agent sets session["fit_card"] = result.
 
 **Final output to user:**
 <!-- What does the user actually see at the end? -->
+The UI renders three panels populated from session:
+ - Search result panel: session["selected_item"] — the Vintage Nirvana Tee listing with price, condition, and platform 
+ - Outfit suggestion panel: session["outfit_suggestion"] — the styled outfit description pairing the tee with wardrobe pieces 
+ - Fit card panel: session["fit_card"] — the OOTD caption ready to share

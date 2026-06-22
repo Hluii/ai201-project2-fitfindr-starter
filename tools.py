@@ -69,8 +69,53 @@ def search_listings(
 
     Before writing code, fill in the Tool 1 section of planning.md.
     """
-    # Replace this with your implementation
-    return []
+    try:
+        listings = load_listings()
+    except Exception:
+        return []
+
+    # Extract keywords from the description (case-insensitive, deduplicated).
+    keywords = {kw for kw in (description or "").lower().split() if kw}
+
+    size_filter = size.lower().strip() if size else None
+
+    scored: list[tuple[int, dict]] = []
+    for listing in listings:
+        # Price filter (inclusive).
+        if max_price is not None:
+            price = listing.get("price")
+            if price is None or price > max_price:
+                continue
+
+        # Size filter (case-insensitive substring match).
+        if size_filter is not None:
+            listing_size = str(listing.get("size") or "").lower()
+            if size_filter not in listing_size:
+                continue
+
+        # Build searchable text from title, description, and style_tags.
+        style_tags = listing.get("style_tags") or []
+        searchable = " ".join(
+            [
+                str(listing.get("title") or ""),
+                str(listing.get("description") or ""),
+                " ".join(str(tag) for tag in style_tags),
+            ]
+        ).lower()
+
+        # Score by number of matching keywords.
+        if keywords:
+            score = sum(1 for kw in keywords if kw in searchable)
+            if score == 0:
+                continue
+        else:
+            # No keywords given: every listing passing the filters matches.
+            score = 0
+
+        scored.append((score, listing))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [listing for _, listing in scored]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
@@ -100,8 +145,72 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
     Before writing code, fill in the Tool 2 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    new_item = new_item or {}
+    item_name = new_item.get("title") or "the item"
+
+    # Compact description of the new item for the prompt.
+    item_lines = [
+        f"- Name: {item_name}",
+        f"- Category: {new_item.get('category', 'unknown')}",
+        f"- Colors: {', '.join(new_item.get('colors') or []) or 'unspecified'}",
+        f"- Style tags: {', '.join(new_item.get('style_tags') or []) or 'none'}",
+    ]
+    if new_item.get("description"):
+        item_lines.append(f"- Description: {new_item['description']}")
+    item_block = "\n".join(item_lines)
+
+    items = (wardrobe or {}).get("items") or []
+
+    if not items:
+        prompt = (
+            "You are a friendly personal stylist. A user is considering buying "
+            "this thrifted item but hasn't shared their wardrobe yet:\n\n"
+            f"{item_block}\n\n"
+            "Give general styling advice for this piece: what kinds of items "
+            "pair well with it, what vibe or aesthetic it suits, and how someone "
+            "might wear it. Keep it concise (a short paragraph or a few bullets) "
+            "and practical."
+        )
+    else:
+        wardrobe_lines = []
+        for it in items:
+            colors = ", ".join(it.get("colors") or [])
+            tags = ", ".join(it.get("style_tags") or [])
+            details = " | ".join(p for p in [it.get("category"), colors, tags] if p)
+            name = it.get("name") or it.get("title") or "item"
+            wardrobe_lines.append(f"- {name}" + (f" ({details})" if details else ""))
+        wardrobe_block = "\n".join(wardrobe_lines)
+
+        prompt = (
+            "You are a friendly personal stylist. A user is considering buying "
+            "this thrifted item:\n\n"
+            f"{item_block}\n\n"
+            "Here is what's already in their wardrobe:\n\n"
+            f"{wardrobe_block}\n\n"
+            "Suggest 1-2 specific, complete outfit combinations that pair the new "
+            "item with named pieces from their wardrobe. Refer to the wardrobe "
+            "pieces by name. Keep it concise and practical."
+        )
+
+    try:
+        client = _get_groq_client()
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+        )
+        text = (response.choices[0].message.content or "").strip()
+        if text:
+            return text
+    except Exception:
+        pass
+
+    # Fallback so we always return a non-empty string.
+    return (
+        f"I couldn't reach the styling assistant right now, but {item_name} is a "
+        "versatile piece — try pairing it with neutral basics and layering to match "
+        "your personal vibe."
+    )
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -133,5 +242,50 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
 
     Before writing code, fill in the Tool 3 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    # Guard: empty or whitespace-only outfit.
+    if not outfit or not outfit.strip():
+        return (
+            "Can't create a fit card without an outfit suggestion — "
+            "generate an outfit first, then try again."
+        )
+
+    new_item = new_item or {}
+    item_name = new_item.get("title") or "this find"
+    price = new_item.get("price")
+    price_str = f"${price:.0f}" if isinstance(price, (int, float)) else "a steal"
+    platform = new_item.get("platform") or "the resale app"
+
+    prompt = (
+        "You're writing a short, casual OOTD-style caption for an Instagram/TikTok "
+        "post about a thrifted find. Here's the outfit:\n\n"
+        f"{outfit.strip()}\n\n"
+        "Item details:\n"
+        f"- Name: {item_name}\n"
+        f"- Price: {price_str}\n"
+        f"- Found on: {platform}\n\n"
+        "Write 2-4 sentences. It should feel authentic and casual (like a real "
+        "OOTD post, not a product description), capture the vibe of the outfit in "
+        f"specific terms, and naturally mention the item name ({item_name}), the "
+        f"price ({price_str}), and the platform ({platform}) exactly once each. "
+        "Return only the caption text."
+    )
+
+    try:
+        client = _get_groq_client()
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=1.2,
+        )
+        text = (response.choices[0].message.content or "").strip()
+        if text:
+            return text
+    except Exception as e:
+        print(f"Groq error: {e}")
+        pass
+
+    # Fallback so we always return a usable, non-empty string.
+    return (
+        f"Obsessed with my new {item_name} 😍 Snagged it for {price_str} on "
+        f"{platform} and it pulls the whole look together. Thrifted and proud!"
+    )
